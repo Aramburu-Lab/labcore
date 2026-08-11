@@ -3,6 +3,11 @@
 Build plan §9 uses this table as the migration backlog, so a frozen repo is
 reported *as frozen* rather than omitted — a row that disappears looks like a
 repo that was fixed, and the whole point is noticing repos that quietly drift.
+
+Every row carries two levels: the one the repo *declares* in ``.labtemplate.yml``
+and the one :func:`labcore.labdocs.levels.assess` can show it *satisfies*. A repo
+declaring 3 while satisfying 2 is the silent drift §9.4 asks to be caught, and it
+is invisible if only one number is printed.
 """
 
 from __future__ import annotations
@@ -14,7 +19,8 @@ import yaml
 
 from labcore.meta import COMMENT_TOKENS, MetaError, extract_block
 
-ANSWERS_FILE = ".copier-answers.yml"
+from .levels import ANSWERS_FILE, assess
+
 TEMPLATE_FILE = ".labtemplate.yml"
 SEARCH_DEPTH = 2
 SKIP_DIRS = {".git", ".venv", "node_modules", "work", "outputs", "results", "__pycache__"}
@@ -29,6 +35,12 @@ class RepoStatus:
     conformance: int | None
     frozen: bool
     drafts: int
+    assessed: int = 0
+
+    @property
+    def drifted(self) -> bool:
+        """True when the repo satisfies less than it declares."""
+        return self.assessed < (self.conformance or 0)
 
 
 def audit_repos(paths: list[Path]) -> list[RepoStatus]:
@@ -61,14 +73,22 @@ def render_audit(rows: list[RepoStatus]) -> str:
     if not rows:
         return "No projects with a .copier-answers.yml found."
     lines = [
-        "| Repo | Template | Level | Frozen | Drafts |",
-        "|---|---|---|---|---|",
+        "| Repo | Template | Declared | Assessed | Frozen | Drafts |",
+        "|---|---|---|---|---|---|",
     ]
     for row in rows:
-        level = "-" if row.conformance is None else str(row.conformance)
+        declared = "-" if row.conformance is None else str(row.conformance)
         lines.append(
-            f"| {row.path} | {row.template_version or 'unknown'} | {level} | "
-            f"{'yes' if row.frozen else 'no'} | {row.drafts} |"
+            f"| {row.path} | {row.template_version or 'unknown'} | {declared} | "
+            f"{row.assessed} | {'yes' if row.frozen else 'no'} | {row.drafts} |"
+        )
+    drifted = [row for row in rows if row.drifted]
+    if drifted:
+        # Called out under the table because two adjacent numbers disagreeing is
+        # exactly what a reader skims past.
+        lines.append("")
+        lines.append(
+            "Drifted (assessed below declared): " + ", ".join(str(row.path) for row in drifted)
         )
     return "\n".join(lines)
 
@@ -95,6 +115,7 @@ def _status(project: Path) -> RepoStatus:
         conformance=conformance if isinstance(conformance, int) else None,
         frozen=bool(template.get("frozen", False)),
         drafts=_count_drafts(project),
+        assessed=assess(project).assessed,
     )
 
 

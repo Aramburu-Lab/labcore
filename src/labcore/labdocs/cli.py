@@ -1,4 +1,4 @@
-"""The `labdocs` console script: render, lint, graph, api, audit, schema.
+"""The `labdocs` console script: render, lint, graph, api, audit, adopt, schema.
 
 Exit codes are the contract the prek hooks depend on: 0 clean, 1 findings or a
 stale generated file, 2 a usage error. `render --check` and `lint` are both wired
@@ -16,8 +16,18 @@ from importlib import import_module
 from pathlib import Path
 
 from labcore.cli import setup_logging
+from labcore.labdocs.adopt import adopt_project, render_report
 from labcore.labdocs.api import write_api_index
 from labcore.labdocs.audit import audit_repos, render_audit
+from labcore.labdocs.levels import MAX_LEVEL
+from labcore.labdocs.rename import (
+    RenameError,
+    apply_renames,
+    read_rename_map,
+    write_rename_map,
+)
+
+DEFAULT_RENAME_MAP = "rename_map.tsv"
 
 CLEAN, FINDINGS, USAGE = 0, 1, 2
 
@@ -46,11 +56,16 @@ def main(argv: list[str] | None = None) -> int:
         "graph": _cmd_graph,
         "api": _cmd_api,
         "audit": _cmd_audit,
+        "adopt": _cmd_adopt,
         "schema": _cmd_schema,
     }
     try:
         return handlers[args.command](args)
     except _BackendError as exc:
+        log.error("%s", exc)
+        return USAGE
+    except RenameError as exc:
+        # Every refusal at once, and nothing done — see rename.RenameError.
         log.error("%s", exc)
         return USAGE
 
@@ -73,6 +88,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     lint = subs.add_parser("lint", help="report metadata and naming violations")
     lint.add_argument("--naming", action="store_true", help="also enforce the file-naming regime")
+    lint.add_argument(
+        "--level",
+        type=int,
+        choices=range(MAX_LEVEL + 1),
+        help="conformance level to enforce, overriding .labtemplate.yml",
+    )
     _add_root(lint)
 
     _add_root(subs.add_parser("graph", help="print the Mermaid dataflow DAG"))
@@ -80,6 +101,29 @@ def _build_parser() -> argparse.ArgumentParser:
 
     audit = subs.add_parser("audit", help="report template drift across repos")
     audit.add_argument("paths", nargs="+", type=Path, help="directories to search, depth 2")
+
+    adopt = subs.add_parser("adopt", help="draft codebase-meta blocks and rename outputs")
+    adopt.add_argument("--write", action="store_true", help="insert the drafted blocks into files")
+    adopt.add_argument(
+        "--rename-map",
+        nargs="?",
+        const=DEFAULT_RENAME_MAP,
+        metavar="PATH",
+        help=f"write an editable rename map (default {DEFAULT_RENAME_MAP}) and stop",
+    )
+    adopt.add_argument(
+        "--apply-renames",
+        nargs="?",
+        const=DEFAULT_RENAME_MAP,
+        metavar="PATH",
+        help="move files listed in a reviewed map and rewrite every reference",
+    )
+    adopt.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --apply-renames, report what would happen and touch nothing",
+    )
+    _add_root(adopt)
 
     schema = subs.add_parser("schema", help="dump the codebase-meta JSON Schema")
     schema.add_argument("--print", dest="print_", action="store_true", required=True)
@@ -118,8 +162,9 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     backend = _backend("lint", "lint_project", "lint_tree", "lint")
     # The naming regime is unconditional in the current linter (LD003), so the
     # flag is only forwarded to a backend that actually takes it.
-    accepts_naming = "naming" in inspect.signature(backend).parameters
-    findings = backend(args.root, naming=args.naming) if accepts_naming else backend(args.root)
+    accepted = inspect.signature(backend).parameters
+    offered = (("naming", args.naming), ("level", args.level))
+    findings = backend(args.root, **{k: v for k, v in offered if k in accepted})
     lines = sorted(f"{f.path}:{f.line}: {f.code} {f.message}" for f in findings)
     for line in lines:
         print(line)
@@ -139,6 +184,43 @@ def _cmd_api(args: argparse.Namespace) -> int:
 
 def _cmd_audit(args: argparse.Namespace) -> int:
     print(render_audit(audit_repos(args.paths)))
+    return CLEAN
+
+
+def _cmd_adopt(args: argparse.Namespace) -> int:
+    """Draft metadata, or run the rename codemod, for one repository."""
+    if args.rename_map and args.apply_renames:
+        log.error("--rename-map writes the map and --apply-renames consumes it; run them in turn")
+        return USAGE
+    if args.rename_map:
+        log.info("wrote %s", write_rename_map(args.root, args.root / args.rename_map))
+        return CLEAN
+    if args.apply_renames:
+        return _run_codemod(args)
+
+    report = adopt_project(args.root, write=args.write)
+    print(render_report(report))
+    return FINDINGS if report.totals["failed"] else CLEAN
+
+
+def _run_codemod(args: argparse.Namespace) -> int:
+    """Apply a reviewed rename map, or describe what applying it would do."""
+    renames = read_rename_map(args.root / args.apply_renames)
+    report = apply_renames(args.root, renames, dry_run=args.dry_run)
+    for move in report.moves:
+        verb = "would move" if report.dry_run else move.method
+        print(f"{verb}: {move.rename.old} -> {move.rename.new}")
+    for rewrite in report.rewrites:
+        print(f"{rewrite.where}: {rewrite.before.strip()} -> {rewrite.after.strip()}")
+    for warning in report.warnings:
+        log.warning("%s", warning)
+    log.info(
+        "%d moves, %d references in %d files%s",
+        len(report.moves),
+        len(report.rewrites),
+        len(report.files_rewritten),
+        " (dry run, nothing written)" if report.dry_run else "",
+    )
     return CLEAN
 
 

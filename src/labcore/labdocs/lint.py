@@ -13,6 +13,12 @@ own greppable code, so a CI log says *which* rule broke rather than "lint failed
 | LD005 | an input with neither ``from:`` nor ``external: true`` |
 | LD006 | ``from: X`` where X does not list that path among its outputs |
 | LD007 | a ``container:`` on docker.io — dev-only (D-004), warning not error |
+| LD008 | a file the declared conformance level requires is absent |
+| LD009 | ``draft: true`` metadata — warning at level 2, error at level 3 |
+
+Every code is gated by the repo's conformance level (build plan §9.1); see
+``levels.py`` for the table. A finding above the declared level is not reported
+at all, because a permanently-red CI is a CI nobody reads.
 """
 
 from __future__ import annotations
@@ -25,7 +31,16 @@ from pathlib import Path
 
 from labcore.meta import MetaBlock, validate_block
 
-from .walk import Project, load_config, walk_project
+from .levels import (
+    DRAFT_CODE,
+    LEVEL1_FILES,
+    checks_adoption_files,
+    draft_severity,
+    read_config,
+    requirements,
+    resolve_level,
+)
+from .walk import Project, walk_project
 
 SCRIPT_STEM = re.compile(r"^[a-z0-9]+(_[a-z0-9]+)*$")
 DELIVERABLE_STEM = re.compile(r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+(_[a-z0-9]+)*_v\d+$")
@@ -138,9 +153,7 @@ def _output_findings(block: MetaBlock, root: Path, exempt: list[str]) -> list[Fi
         needle = path or output.get("pipe", "")
         line = _locate(block.path, needle, block.start_line) if needle else block.start_line
         if not str(output.get("desc", "")).strip():
-            findings.append(
-                Finding("LD002", block.path, line, f"output '{needle}' has no desc:")
-            )
+            findings.append(Finding("LD002", block.path, line, f"output '{needle}' has no desc:"))
         # A piped output has no filename, so there is nothing to name.
         if not path:
             continue
@@ -229,33 +242,68 @@ def _block_findings(project: Project, block: MetaBlock, exempt: list[str]) -> li
     # schemas" for a missing desc or a bare input — useless next to LD002/LD005,
     # so it is only surfaced when neither of those already explained the block.
     if schema_errors and not any(f.code in {"LD002", "LD005"} for f in findings):
-        findings.append(
-            Finding("LD000", block.path, block.start_line, "; ".join(schema_errors))
-        )
+        findings.append(Finding("LD000", block.path, block.start_line, "; ".join(schema_errors)))
     return findings
 
 
-def lint_project(root: Path) -> list[Finding]:
-    """Lint one project tree.
+def _adoption_findings(root: Path) -> list[Finding]:
+    """LD008 over the level-1 file manifest."""
+    return [
+        Finding("LD008", root / name, 1, f"conformance level 1 requires {name}")
+        for name in LEVEL1_FILES
+        if not (root / name).is_file()
+    ]
+
+
+def _draft_findings(project: Project, level: int) -> list[Finding]:
+    """LD009 over blocks `labdocs adopt` wrote and nobody has reviewed."""
+    return [
+        Finding(
+            DRAFT_CODE,
+            block.path,
+            _locate(block.path, "draft:", block.start_line),
+            "draft: true metadata has not been reviewed",
+            severity=draft_severity(level),
+        )
+        for block in project.blocks
+        if block.data.get("draft") is True
+    ]
+
+
+def lint_project(root: Path, *, level: int | None = None) -> list[Finding]:
+    """Lint one project tree at its conformance level.
 
     Args:
         root: Project root, the directory holding ``scripts/``.
+        level: Level to enforce, overriding the declaration. When None the
+            level comes from ``.labtemplate.yml``; a tree with no declaration
+            is held to the full standard rather than let off.
 
     Returns:
-        Findings sorted by path, then line, then code. The caller decides the
-        exit status; only ``severity == "error"`` should make it non-zero.
+        Findings sorted by path, then line, then code, filtered to the codes the
+        level activates. A repo at level 0 has opted out and returns nothing.
+        The caller decides the exit status; only ``severity == "error"`` should
+        make it non-zero.
     """
-    project = walk_project(root)
-    exempt = list(load_config(root).get("naming_exempt") or [])
+    root = Path(root)
+    resolved = resolve_level(root, level)
+    if resolved < 1:
+        return []
 
-    findings = [
-        Finding("LD000", path, 1, message) for path, message in project.errors
-    ]
-    findings += [
-        Finding("LD001", path, 1, "no codebase-meta block") for path in project.missing
-    ]
+    project = walk_project(root)
+    exempt = read_config(root)["naming_exempt"]
+
+    findings = [Finding("LD000", path, 1, message) for path, message in project.errors]
+    findings += [Finding("LD001", path, 1, "no codebase-meta block") for path in project.missing]
     findings += _script_name_findings(project, exempt)
+    findings += _draft_findings(project, resolved)
     for block in project.blocks:
         findings += _block_findings(project, block, exempt)
+    if checks_adoption_files(root):
+        findings += _adoption_findings(root)
 
-    return sorted(findings, key=lambda f: (str(f.path), f.line, f.code))
+    active = requirements(resolved)
+    return sorted(
+        (f for f in findings if f.code in active),
+        key=lambda f: (str(f.path), f.line, f.code),
+    )
