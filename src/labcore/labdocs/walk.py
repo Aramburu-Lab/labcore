@@ -23,6 +23,8 @@ from labcore.meta import COMMENT_TOKENS, MetaBlock, MetaError, extract_block
 
 # Generated, vendored or transient trees. `outputs/` and `results/` hold data,
 # never scripts; `work/` is Nextflow scratch and can contain thousands of files.
+SCRIPT_DIRS = ("scripts", "bin")
+
 SKIP_DIRS = frozenset(
     {".git", "node_modules", "work", "results", ".venv", "__pycache__", "outputs"}
 )
@@ -176,9 +178,11 @@ def project_scripts(root: Path) -> Iterator[Path]:
         Scripts under ``scripts/``, then any at the root itself.
     """
     seen: set[Path] = set()
-    for path in iter_scripts(root / "scripts"):
-        seen.add(path)
-        yield path
+    for base in SCRIPT_DIRS:
+        for path in iter_scripts(root / base):
+            if path not in seen:
+                seen.add(path)
+                yield path
 
     # Root level only. Recursing would sweep in vendored trees and per-analysis
     # output directories that no repo intends as source.

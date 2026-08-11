@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from labcore.labdocs.walk import project_scripts
+
 SCRIPT_SUFFIXES = (".py", ".R", ".r", ".rs", ".sh", ".bash")
 
 _R_DEF = re.compile(r"^\s*([A-Za-z._][\w.]*)\s*(?:<-|=)\s*function\s*\((.*)$")
@@ -50,7 +52,7 @@ def build_api_index(root: Path) -> str:
     """
     sections = [
         (path.relative_to(root).as_posix(), extract_functions(path))
-        for path in _script_files(root / "scripts")
+        for path in _script_files(root)
     ]
     sections += [(f"labcore/{p.name}", extract_functions(p)) for p in _labcore_modules()]
 
@@ -99,11 +101,13 @@ def extract_functions(path: Path) -> list[ApiEntry]:
     return []
 
 
-def _script_files(scripts: Path) -> list[Path]:
-    """Every supported source file under scripts/, in stable path order."""
-    if not scripts.is_dir():
-        return []
-    found = [p for p in scripts.rglob("*") if p.is_file() and p.suffix in SCRIPT_SUFFIXES]
+def _script_files(root: Path) -> list[Path]:
+    """Every supported source file the project owns, in stable path order.
+
+    Shares the linter's definition so the API index covers the same files the
+    report and the linter do, including a flat repo's root-level scripts.
+    """
+    found = [p for p in project_scripts(root) if p.suffix in SCRIPT_SUFFIXES]
     return sorted(found, key=lambda p: p.as_posix())
 
 
