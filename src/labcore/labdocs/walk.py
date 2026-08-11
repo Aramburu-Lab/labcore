@@ -25,6 +25,13 @@ from labcore.meta import COMMENT_TOKENS, MetaBlock, MetaError, extract_block
 # never scripts; `work/` is Nextflow scratch and can contain thousands of files.
 SCRIPT_DIRS = ("scripts", "bin")
 
+# COMMENT_TOKENS includes .toml, because a TOML file *can* carry a block. That is
+# not a licence to grade every config file at a repo root as a pipeline step:
+# pixi.toml and ruff.toml are configuration, and demanding a codebase-meta block
+# from them is nonsense. Inside scripts/ the full token set still applies — a
+# .toml placed there was put there deliberately.
+ROOT_SCRIPT_SUFFIXES = frozenset({".py", ".R", ".r", ".sh", ".bash", ".nf", ".rs", ".jl", ".pl"})
+
 SKIP_DIRS = frozenset(
     {".git", "node_modules", "work", "results", ".venv", "__pycache__", "outputs"}
 )
@@ -189,7 +196,7 @@ def project_scripts(root: Path) -> Iterator[Path]:
     if not root.is_dir():
         return
     for entry in sorted(root.iterdir()):
-        if entry.is_file() and entry.suffix in COMMENT_TOKENS and entry not in seen:
+        if entry.is_file() and entry.suffix in ROOT_SCRIPT_SUFFIXES and entry not in seen:
             yield entry
 
 
