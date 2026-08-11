@@ -59,7 +59,40 @@ def _scale_name(scale: str) -> str:
     return scale if scale in FONT_SIZES else "paper"
 
 
-def font_size(role: str, scale: str = "paper") -> float:
+# Offsets from the base point size, restoring the continuous scheme the named
+# scales replaced: body/ticks/legend sit at the base, axis labels +2, panel
+# titles +4, the figure suptitle +5. Callers whose users think in points (every
+# script with a --text_size flag) need this; two named buckets collapse 11 and 12
+# to the same render and everything from 13 up to "deck".
+_ROLE_OFFSETS = {
+    "suptitle": 5.0,
+    "panel_title": 4.0,
+    "axis_label": 2.0,
+    "annot": 0.0,
+    "caption": 0.0,
+    "tick": 0.0,
+    "value": 0.0,
+}
+
+
+def role_sizes(scale: str = "paper", base: float | None = None) -> dict[str, float]:
+    """Return every role's point size, from a named scale or an absolute base.
+
+    Args:
+        scale: "paper" (journal multi-panel) or "deck" (projector). Ignored when
+            `base` is given.
+        base: Absolute base size in points. Body text, ticks and legends render at
+            exactly this size and the other roles are offset from it.
+
+    Returns:
+        Role name to point size.
+    """
+    if base is None:
+        return dict(FONT_SIZES[_scale_name(scale)])
+    return {role: base + offset for role, offset in _ROLE_OFFSETS.items()}
+
+
+def font_size(role: str, scale: str = "paper", base: float | None = None) -> float:
     """Return the point size for a text role.
 
     Literals used to run from 5.0 to 11 across scripts with no shared meaning: the
@@ -68,6 +101,7 @@ def font_size(role: str, scale: str = "paper") -> float:
     Args:
         role: One of suptitle, panel_title, axis_label, annot, caption, tick, value.
         scale: "paper" or "deck".
+        base: Absolute base size in points, overriding `scale`.
 
     Returns:
         Size in points.
@@ -75,7 +109,7 @@ def font_size(role: str, scale: str = "paper") -> float:
     Raises:
         KeyError: If the role is not in the table.
     """
-    return FONT_SIZES[_scale_name(scale)][role]
+    return role_sizes(scale, base)[role]
 
 
 @lru_cache(maxsize=1)
@@ -97,31 +131,49 @@ def _pick(preferred: tuple[str, ...], default: str) -> str:
     return default
 
 
-@lru_cache(maxsize=4)
+_SANS_CHAIN = ("Arial", "Helvetica", "Liberation Sans")
+_SERIF_CHAIN = ("Georgia", "Times New Roman", "Times", "Liberation Serif")
+
+# Families that select the serif chain when named directly, so `font="Times New
+# Roman"` picks a serif title rather than falling through to the sans default.
+_SERIF_NAMES = {"georgia", "times new roman", "times", "liberation serif",
+                "dejavu serif", "serif"}
+
+
+@lru_cache(maxsize=16)
 def _resolve_fonts(choice: str) -> tuple[tuple[str, str], ...]:
     """Cached font resolution, returned as an immutable pair sequence."""
-    sans = _pick(("Arial", "Helvetica", "Liberation Sans"), "DejaVu Sans")
-    sans_css = f"{sans}, Arial, Helvetica, sans-serif"
-    if choice == "serif":
-        serif = _pick(("Georgia", "Times New Roman", "Times", "Liberation Serif"),
-                      "DejaVu Serif")
-        return (("title", serif), ("body", sans),
-                ("title_css", f'{serif}, "Times New Roman", serif'),
-                ("body_css", sans_css))
+    wants_serif = choice.lower() in _SERIF_NAMES
+    named = choice if choice.lower() not in {"sans", "serif"} else ""
+
+    # A requested family goes to the head of its chain, so an explicit
+    # `font="Helvetica"` wins when installed and still degrades gracefully.
+    sans_chain = ((named,) if named and not wants_serif else ()) + _SANS_CHAIN
+    serif_chain = ((named,) if named and wants_serif else ()) + _SERIF_CHAIN
+
+    sans = _pick(sans_chain, "DejaVu Sans")
+    sans_css = ", ".join(dict.fromkeys((*sans_chain, "sans-serif")))
+
+    if wants_serif:
+        serif = _pick(serif_chain, "DejaVu Serif")
+        serif_css = ", ".join(dict.fromkeys((*serif_chain, "serif")))
+        return (("title", serif), ("body", serif),
+                ("title_css", serif_css), ("body_css", serif_css))
     return (("title", sans), ("body", sans),
             ("title_css", sans_css), ("body_css", sans_css))
 
 
 def resolve_fonts(choice: str = "sans") -> dict[str, str]:
-    """Resolve the title and body faces for a font choice, once per process.
+    """Resolve the title and body faces for a font class or an explicit family.
 
-    The chain is Arial -> Helvetica -> Liberation Sans -> DejaVu Sans; containers
-    that ship none of the first three (the rnaseq python image is one) land
-    silently on DejaVu rather than warning per draw call.
+    Accepts either a class — "sans" (house style) or "serif" — or a family name
+    such as "Arial", "Helvetica" or "Times New Roman". A named family is tried
+    first and then degrades along its chain, ending at DejaVu, which matplotlib
+    always ships. Passing a name used to be silently ignored, so a script whose
+    `--font` flag offered Times New Roman rendered sans with no warning.
 
     Args:
-        choice: "sans" (house style, title and body share the face) or "serif"
-            (Georgia masthead over a sans body).
+        choice: A font class ("sans", "serif") or a family name.
 
     Returns:
         Keys ``title``, ``body`` (installed family names, for matplotlib) and
@@ -131,8 +183,8 @@ def resolve_fonts(choice: str = "sans") -> dict[str, str]:
 
 
 def apply_mpl_theme(theme: str = "light", font: str = "sans",
-                    scale: str = "paper") -> None:
-    """Set matplotlib rcParams for one theme, font choice and size scale.
+                    scale: str = "paper", base_size: float | None = None) -> None:
+    """Set matplotlib rcParams for one theme, font and size.
 
     Backgrounds are saved transparent (the house default) so one figure drops onto
     a white page or a dark slide without a baked box; only the ink flips between
@@ -140,8 +192,12 @@ def apply_mpl_theme(theme: str = "light", font: str = "sans",
 
     Args:
         theme: Any spelling accepted by :func:`normalize_theme`.
-        font: "sans" or "serif".
+        font: A font class ("sans", "serif") or an explicit family name such as
+            "Arial" or "Times New Roman".
         scale: "paper" (journal multi-panel) or "deck" (projector).
+        base_size: Absolute base size in points, overriding `scale`. Body text,
+            ticks and legends land on exactly this value. Use it when the caller
+            exposes a point size to users; the named scales cannot express one.
     """
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -151,7 +207,9 @@ def apply_mpl_theme(theme: str = "light", font: str = "sans",
     plt.style.use("dark_background" if name == "dark" else "default")
 
     ink = neutrals(name, transparent=False)
-    sizes = FONT_SIZES[scale]
+    sizes = role_sizes(scale, base_size)
+    # Strokes still track the named scale: a base size says nothing about how
+    # thick a spine should be, and the deck preset prints as a cage at panel size.
     stroke = _STROKES[scale]
     fg, bg = ink["ink"], ink["plot_bg"]
 
@@ -212,13 +270,16 @@ def apply_mpl_theme(theme: str = "light", font: str = "sans",
 
 
 def plotly_template(theme: str = "light", font: str = "sans",
-                    scale: str = "paper"):
+                    scale: str = "paper", base_size: float | None = None):
     """Return a plotly Template matching :func:`apply_mpl_theme`.
 
     Args:
         theme: Any spelling accepted by :func:`normalize_theme`.
-        font: "sans" or "serif".
+        font: A font class ("sans", "serif") or an explicit family name.
         scale: "paper" or "deck".
+        base_size: Absolute base size in points, overriding `scale`. Pass the same
+            value here as to :func:`apply_mpl_theme` or the HTML and the PDF of one
+            figure render at different sizes.
 
     Returns:
         A ``plotly.graph_objects.layout.Template``.
@@ -228,7 +289,7 @@ def plotly_template(theme: str = "light", font: str = "sans",
     import plotly.io as pio
 
     name = normalize_theme(theme)
-    sizes = FONT_SIZES[_scale_name(scale)]
+    sizes = role_sizes(scale, base_size)
     ink = neutrals(name)
     fg = ink["ink"]
 
@@ -241,7 +302,9 @@ def plotly_template(theme: str = "light", font: str = "sans",
                                            else "plotly_white"])
 
     fonts = resolve_fonts(font)
-    family = fonts["title_css"] if font == "serif" else fonts["body_css"]
+    # body_css already carries the serif chain when a serif family was requested,
+    # so keying off the literal string "serif" would miss `font="Times New Roman"`.
+    family = fonts["body_css"]
 
     # Modern plotly replaced `titlefont` with `title.font`; the nested-dict form
     # works on both 5.x and 6.x.
