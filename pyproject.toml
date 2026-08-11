@@ -30,13 +30,11 @@ dev = ["labcore[all]", "pytest>=8", "pandas>=2", "ruff>=0.16.2"]
 labdocs = "labcore.labdocs.cli:main"
 
 [tool.hatch.build.targets.wheel]
+# The JSON Schema and report stylesheet live INSIDE the package directory, so
+# hatchling ships them as package data automatically. A force-include here would
+# add them a second time and hard-fail the wheel build with a duplicate-path
+# error — which an editable install never surfaces.
 packages = ["src/labcore"]
-
-# The JSON Schema and report stylesheet ship as package data, not as Copier
-# template files: schema and parser must version together (build plan §5.2).
-[tool.hatch.build.targets.wheel.force-include]
-"src/labcore/labdocs/schema" = "labcore/labdocs/schema"
-"src/labcore/labdocs/assets" = "labcore/labdocs/assets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
