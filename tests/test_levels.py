@@ -295,3 +295,41 @@ def test_cli_exit_code_is_clean_for_a_draft_at_level_2(tmp_path: Path, capsys) -
 
     assert main(["lint", "--root", str(repo)]) == 0
     assert "LD009" in capsys.readouterr().out
+
+
+class TestFlatRepoIsGraded:
+    """Level 2 forbids moving files, so lint must see scripts where they are.
+
+    `walk_project` used to look only under `scripts/`, so a brownfield repo — the
+    exact shape level 2 exists for — lint-passed at level 2 with every script
+    undocumented. `labdocs adopt` saw those scripts and drafted blocks for them,
+    so the two halves of the migration path disagreed about what a project was.
+    """
+
+    @staticmethod
+    def _flat(tmp_path, level: int):
+        (tmp_path / "analysis.py").write_text('"""Do a thing."""\nprint(1)\n', encoding="utf-8")
+        (tmp_path / ".labtemplate.yml").write_text(
+            f"conformance: {level}\nfrozen: false\nnaming_exempt: []\n", encoding="utf-8"
+        )
+        for name in (".copier-answers.yml", "AGENTS.md", "CLAUDE.md"):
+            (tmp_path / name).write_text("x\n", encoding="utf-8")
+        (tmp_path / "knowledge").mkdir(exist_ok=True)
+        (tmp_path / "knowledge" / "overview.md").write_text("x\n", encoding="utf-8")
+        return tmp_path
+
+    def test_undocumented_root_script_fails_level_2(self, tmp_path):
+        from labcore.labdocs.lint import lint_project
+
+        findings = lint_project(self._flat(tmp_path, 2))
+        assert [f.code for f in findings if f.severity == "error"] == ["LD001"], (
+            "a root-level script with no metadata block passed level 2 — lint is "
+            "grading an empty set"
+        )
+
+    def test_the_same_repo_is_clean_at_level_1(self, tmp_path):
+        from labcore.labdocs.lint import lint_project
+
+        assert lint_project(self._flat(tmp_path, 1)) == [], (
+            "level 1 must touch no code; a missing block cannot fail it"
+        )

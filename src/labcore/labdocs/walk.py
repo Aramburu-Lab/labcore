@@ -159,20 +159,51 @@ def _read_sidecars(root: Path, project: Project) -> None:
             project.errors.append((path, "meta.yml is not a mapping"))
 
 
+def project_scripts(root: Path) -> Iterator[Path]:
+    """Yield every script the linter is responsible for.
+
+    Scripts normally live under ``scripts/``, but conformance level 2 requires a
+    metadata block on every script while explicitly forbidding any file to be
+    moved (build plan §9.1). A brownfield repo therefore has them at the root,
+    and looking only under ``scripts/`` made `labdocs lint` exit 0 on a tree full
+    of undocumented scripts — a vacuous pass on exactly the repo shape level 2
+    exists for, and the state `labdocs adopt` already drafts blocks into.
+
+    Args:
+        root: Project root.
+
+    Yields:
+        Scripts under ``scripts/``, then any at the root itself.
+    """
+    seen: set[Path] = set()
+    for path in iter_scripts(root / "scripts"):
+        seen.add(path)
+        yield path
+
+    # Root level only. Recursing would sweep in vendored trees and per-analysis
+    # output directories that no repo intends as source.
+    if not root.is_dir():
+        return
+    for entry in sorted(root.iterdir()):
+        if entry.is_file() and entry.suffix in COMMENT_TOKENS and entry not in seen:
+            yield entry
+
+
 def walk_project(root: Path) -> Project:
     """Build the project model for one repository.
 
     Args:
-        root: Project root, the directory holding ``scripts/``.
+        root: Project root. Scripts are taken from ``scripts/`` and from the root
+            itself, so an unrestructured repo is still graded.
 
     Returns:
         A Project whose ``blocks``, ``missing`` and ``errors`` together account
-        for every script found under ``scripts/``. Pipeline projects also carry
-        an nf-core component inventory in ``components``.
+        for every script found. Pipeline projects also carry an nf-core component
+        inventory in ``components``.
     """
     project = Project(root=root, flavour=detect_flavour(root))
 
-    for path in iter_scripts(root / "scripts"):
+    for path in project_scripts(root):
         try:
             block = extract_block(path)
         except MetaError as exc:
