@@ -1,0 +1,38 @@
+# Run by prek (not pre-commit) — nf-core/tools 4.0.0 switched, and prek reads this
+# same file. Pinned to 0.4.13 in codebase_template/knowledge/versions.md.
+#
+# ADR-10 calls enforcement "the whole point": without these hooks the generated
+# report decays into exactly the stale wiki this system exists to avoid.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: labdocs-lint
+        name: labdocs lint
+        entry: labdocs lint
+        language: system
+        pass_filenames: false
+
+      - id: labdocs-render
+        name: labdocs render (staleness check)
+        entry: labdocs render --check
+        language: system
+        pass_filenames: false
+
+      # Ruff has no file-length rule, so the ADR-12 cap lives here.
+      # D-005b ratchet: warn above 200, fail above 600. 64-83% of real files in
+      # the lab exceed 200 today; failing there on day one gets the whole hook
+      # disabled, and the metadata and naming lints go with it.
+      - id: check-file-length
+        name: check file length (warn >200, fail >600)
+        entry: python scripts/check_file_length.py
+        language: system
+        types: [text]
+        exclude: '^(tests/fixtures/|\.venv/)'

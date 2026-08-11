@@ -1,0 +1,7 @@
+accession	sample	url	condition	replicate
+SRR9001101	ctrl_r1	https://ftp.example.org/vol1/SRR9001101.fq.gz	control	1
+SRR9001102	ctrl_r2	https://ftp.example.org/vol1/SRR9001102.fq.gz	control	2
+SRR9001103	ctrl_r3	https://ftp.example.org/vol1/SRR9001103.fq.gz	control	3
+SRR9001104	trt_r1	https://ftp.example.org/vol1/SRR9001104.fq.gz	treated	1
+SRR9001105	trt_r2	https://ftp.example.org/vol1/SRR9001105.fq.gz	treated	2
+SRR9001106	trt_r3	https://ftp.example.org/vol1/SRR9001106.fq.gz	treated	3

@@ -1,0 +1,32 @@
+# ADR-12 as configuration, not prose.
+# Ratchet per D-005b: the 200-line file cap is a target, not yet a hard failure.
+# Ruff has no file-length rule; that lives in the prek hook `check-file-length`.
+
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "N", "D", "UP", "B", "C90", "PL", "ERA", "ARG", "SIM"]
+ignore = [
+  "D203",    # conflicts with D211
+  "D213",    # conflicts with D212
+  "PLC0415", # lazy imports are deliberate here — see viz/save.py
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["D", "PLR2004", "ARG"]
+# Fixture scripts are documentation examples; they are linted by labdocs, not ruff.
+"tests/fixtures/**" = ["ALL"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-statements = 50
+max-branches = 12
+# Ruff defaults to 5. ADR-12's table says 6, so it must be set explicitly or the
+# table is quietly wrong (knowledge/versions.md).
+max-args = 6

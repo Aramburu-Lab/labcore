@@ -1,0 +1,7 @@
+barcode	sample	condition	batch
+AAACCTGAGCGTAGTG	ctrl_r1	control	b1
+AAACCTGCATCACGAT	ctrl_r2	control	b1
+AAACGGGAGTCCTCCT	ctrl_r3	control	b2
+AAAGATGCACGACGAA	trt_r1	treated	b1
+AAAGCAATCGGTTAAC	trt_r2	treated	b2
+AAATGCCAGTGTTGAA	trt_r3	treated	b2

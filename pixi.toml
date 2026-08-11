@@ -1,0 +1,41 @@
+[workspace]
+name = "labcore"
+channels = ["conda-forge"]
+# glibc is pinned to Kebnekaise's Ubuntu 22.04 so a GLIBCXX crash on a compute
+# node becomes a resolver error on the laptop instead. UNVERIFIED — 2.35 is
+# inferred from the OS version; confirm with `ldd --version` (hpc2n_verified.md).
+platforms = [{ platform = "linux-64", glibc = "2.35" }, "osx-arm64"]
+
+[dependencies]
+python = "3.12.*"
+
+[pypi-dependencies]
+labcore = { path = ".", editable = true }
+
+[feature.analysis.dependencies]
+polars = ">=1.43,<2"
+pyarrow = ">=16"
+pandas = ">=2"
+matplotlib = ">=3.8"
+plotly = ">=5.20"
+duckdb = ">=1.0"
+scipy = ">=1.11"
+pyyaml = ">=6"
+jsonschema = ">=4"
+
+[feature.dev.dependencies]
+pytest = ">=8"
+
+[feature.dev.pypi-dependencies]
+ruff = ">=0.16.2"
+prek = "*"
+
+[environments]
+default = { features = ["analysis", "dev"], solve-group = "main" }
+prod = { features = ["analysis"], solve-group = "main" }
+
+[tasks]
+test = "pytest -q"
+lint = "ruff check src tests scripts"
+docs = "labdocs render"
+check = "labdocs lint && labdocs render --check"

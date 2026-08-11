@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aramburu-lab/labcore/schema/codebase-meta.schema.json",
+  "title": "codebase-meta",
+  "description": "Metadata carried by every script in a lab project. Build plan §5.2. Ships as package data inside labdocs so the schema and the parser version together.",
+  "oneOf": [
+    { "$ref": "#/$defs/exemptBlock" },
+    { "$ref": "#/$defs/stepBlock" }
+  ],
+  "$defs": {
+    "exemptBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exempt"],
+      "properties": {
+        "exempt": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Why this file is not a pipeline step. A bare 'true' is not an answer."
+        }
+      }
+    },
+    "stepBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "order", "summary", "outputs"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(_[a-z0-9]+)*$",
+          "description": "Single lowercase underscore string, matching the filename stem (ADR-11)."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Run order. Also names the output directory: outputs/<order>_<name>/."
+        },
+        "summary": { "type": "string", "minLength": 3 },
+        "entrypoint": {
+          "type": "boolean",
+          "description": "True if a human runs this directly. Answers 'which of these do I actually type?' — prior_art.md §2."
+        },
+        "draft": {
+          "type": "boolean",
+          "description": "Written by `labdocs adopt`, not yet reviewed. Warning at conformance level 2, error at level 3 (build plan §9.3)."
+        },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/input" } },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/output" }
+        },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/option" } },
+        "next": { "$ref": "#/$defs/next" },
+        "container": {
+          "type": "string",
+          "description": "Image reference. Digest-pinned (@sha256:) for anything archived with a manuscript; a docker.io/ reference is dev-only (D-004)."
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "from": {
+          "type": "string",
+          "description": "Name of the producing script. Mutually exclusive with external."
+        },
+        "external": {
+          "type": "boolean",
+          "description": "True for inputs originating outside the DAG. Silence is not a valid answer — an input needs one of from/external."
+        },
+        "desc": { "type": "string" }
+      },
+      "oneOf": [
+        { "required": ["from"], "not": { "required": ["external"] } },
+        {
+          "required": ["external"],
+          "properties": { "external": { "const": true } },
+          "not": { "required": ["from"] }
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desc"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "pipe": {
+          "type": "string",
+          "enum": ["stdout", "stderr"],
+          "description": "A stream rather than a file. Exempt from the out_ naming rule — there is no file to name."
+        },
+        "to": {
+          "type": "string",
+          "description": "Consuming script for a piped output. An unconsumed stream is a bug."
+        },
+        "desc": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Undescribed outputs are how data dictionaries die."
+        }
+      },
+      "oneOf": [
+        { "required": ["path"], "not": { "required": ["pipe"] } },
+        { "required": ["pipe", "to"], "not": { "required": ["path"] } }
+      ]
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flag", "desc"],
+      "properties": {
+        "flag": { "type": "string", "pattern": "^-" },
+        "desc": { "type": "string", "minLength": 3 },
+        "default": {}
+      }
+    },
+    "next": {
+      "oneOf": [
+        { "type": "string", "const": "final" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      ],
+      "description": "Downstream script names, or the literal 'final' for a terminal step."
+    }
+  }
+}
