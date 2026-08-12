@@ -14,9 +14,11 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# GHCR rejects a mixed-case repository name, and github.repository_owner is
+# "Aramburu-Lab". Lowercased once here rather than at each use site.
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/labcore
-  SIF_ARTIFACT: ghcr.io/${{ github.repository_owner }}/labcore-sif
+  IMAGE: ghcr.io/aramburu-lab/labcore
+  SIF_ARTIFACT: ghcr.io/aramburu-lab/labcore-sif
 
 jobs:
   build:
