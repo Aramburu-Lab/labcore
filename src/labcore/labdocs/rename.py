@@ -16,10 +16,8 @@ Matching is deliberately conservative — whole paths, and bare basenames only
 where the surrounding text is not itself a literal path. That is what keeps a
 rename of ``counts.csv`` from corrupting ``raw_counts.csv`` or ``raw/counts.csv``.
 
-Scope: proposals come from `codebase-meta` output declarations, which is what
-LD003 judges too, so an output no block declares is not proposed — declare it at
-level 2 first. ``deliverables/`` names need a date and a version no static reader
-can invent, so those stay LD003 findings for a human.
+*What* to rename lives in :mod:`labcore.labdocs.propose`, which derives every
+target from the manifest; this module is only how to carry one out safely.
 """
 
 from __future__ import annotations
@@ -34,8 +32,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .lint import _is_naming_exempt, _name_violation, _split_name, _strip_theme
-from .walk import load_config, walk_project
+from .propose import Rename, propose
 
 # Every text carrier that can name a path. A missed reference is a broken
 # pipeline, so this errs wide: workflow YAML under .github, a README under
@@ -62,7 +59,15 @@ MAP_COLUMNS = ("old", "new", "reason")
 MAP_PREAMBLE = (
     "# labdocs rename map. Edit the `new` column; delete any row you do not want.",
     "# Tab-separated: old<TAB>new<TAB>reason. Blank lines and # lines are ignored.",
+    "# Three kinds of row: a script move into scripts/<lang>/, an output rename",
+    "# into outputs/<order>_<step>/, and — commented out at the end — a path no",
+    "# static rename can reach. A commented row is inert; it is listed so the map",
+    "# does not look complete when it is not.",
     "# Apply with: labdocs adopt --apply-renames <this file>",
+)
+UNMAPPABLE_HEADER = (
+    "# --- unmappable: the path is built at runtime, or names a directory. Fix the",
+    "# --- script that writes it, then uncomment and edit the row it belongs to.",
 )
 
 # What makes a hit part of a longer name rather than a reference to the file. On
@@ -86,15 +91,6 @@ class RenameError(RuntimeError):
     Carries every problem found, not the first: fixing a map one refusal at a
     time is its own kind of migration stall.
     """
-
-
-@dataclass(frozen=True)
-class Rename:
-    """One proposed move, as repository-relative POSIX paths."""
-
-    old: str
-    new: str
-    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -209,56 +205,20 @@ def _rewrite(text: str, rules: list[_Rule]) -> str:
 # --- Proposal and map -------------------------------------------------------
 
 
-def _proposed(rel: str, script: str) -> str:
-    """Propose ``out_<script>_<descriptor>`` for one output path."""
-    parent, _, name = rel.rpartition("/")
-    stem, ext = _split_name(name)
-    base = _strip_theme(stem)
-    theme = stem[len(base) :]
-
-    slug = re.sub(r"[^a-z0-9]+", "_", base.lower()).strip("_")
-    if slug.startswith("out_"):
-        slug = slug[len("out_") :]
-    if slug.startswith(f"{script}_"):
-        slug = slug[len(script) + 1 :]
-    elif slug == script:
-        slug = ""
-    # ADR-11 wants a descriptor *after* the script name, so an output whose whole
-    # name was the script name still needs one.
-    new_name = f"out_{script}_{slug or 'result'}{theme}" + (f".{ext}" if ext else "")
-    return f"{parent}/{new_name}" if parent else new_name
-
-
 def propose_renames(root: Path) -> list[Rename]:
-    """Propose an ADR-11 name for every misnamed output a script declares.
+    """Propose every move ADR-11 implies and this codemod can actually perform.
 
     Args:
-        root: Project root, the directory holding ``scripts/``.
+        root: Project root, the directory holding the scripts.
 
     Returns:
-        One :class:`Rename` per declared output whose path violates the naming
-        regime, each carrying the violation and the declaring script as its
-        reason. Conforming outputs are absent, so this returns an empty list on
-        a repo already at level 3.
+        The applyable half of :func:`labcore.labdocs.propose.propose`: script
+        moves into ``scripts/<lang>/`` and output renames into
+        ``outputs/<order>_<step>/``, each carrying its reason. A repo already at
+        level 3 yields an empty list, and the paths no static rename can reach
+        are in ``unmappable`` rather than here.
     """
-    root = Path(root)
-    project = walk_project(root)
-    exempt = list(load_config(root).get("naming_exempt") or [])
-
-    renames: list[Rename] = []
-    seen: set[str] = set()
-    for block in sorted(project.blocks, key=lambda b: str(b.path)):
-        for output in block.outputs:
-            rel = str(output.get("path") or "").strip()
-            if not rel.startswith("outputs/") or rel in seen or _is_naming_exempt(rel, exempt):
-                continue
-            violation = _name_violation(rel, block.name)
-            new_rel = _proposed(rel, block.name)
-            if violation is None or new_rel == rel:
-                continue
-            seen.add(rel)
-            renames.append(Rename(rel, new_rel, f"declared by {block.name}; {violation}"))
-    return renames
+    return propose(root).renames
 
 
 def write_rename_map(root: Path, dest: Path) -> Path:
@@ -266,7 +226,9 @@ def write_rename_map(root: Path, dest: Path) -> Path:
 
     The map is the review surface (build plan §9.3, "review the map, not the
     diff"), so every row carries the reason it was proposed rather than a bare
-    old-to-new pair a reviewer would have to reconstruct.
+    old-to-new pair a reviewer would have to reconstruct. Unmappable paths are
+    written commented out: they cannot be applied, but dropping them would let
+    an incomplete map pass for a complete one.
 
     Args:
         root: Project root to inspect.
@@ -275,8 +237,12 @@ def write_rename_map(root: Path, dest: Path) -> Path:
     Returns:
         The path written.
     """
+    proposals = propose(root)
     lines = [*MAP_PREAMBLE, "\t".join(MAP_COLUMNS)]
-    lines += [f"{r.old}\t{r.new}\t{r.reason}" for r in propose_renames(root)]
+    lines += [f"{r.old}\t{r.new}\t{r.reason}" for r in proposals.renames]
+    if proposals.unmappable:
+        lines += UNMAPPABLE_HEADER
+        lines += [f"# {r.old}\t{r.new}\t{r.reason}" for r in proposals.unmappable]
 
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)

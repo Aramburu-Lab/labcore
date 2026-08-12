@@ -102,7 +102,7 @@ LEVELS: tuple[Level, ...] = (
         "Structured",
         "scripts/<lang>/ and outputs/NN_step/ layout; the ADR-11 naming linter "
         "passes; no draft metadata left.",
-        ("LD003", "LD004"),
+        ("LD003", "LD004", "LD010"),
     ),
     Level(
         4,

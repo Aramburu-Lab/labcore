@@ -13,6 +13,7 @@ own greppable code, so a CI log says *which* rule broke rather than "lint failed
 | LD005 | an input with neither ``from:`` nor ``external: true`` |
 | LD006 | ``from: X`` where X does not list that path among its outputs |
 | LD007 | a ``container:`` on docker.io — dev-only (D-004), warning not error |
+| LD010 | a step output outside ``outputs/<order>_<name>/`` — level 3 layout |
 | LD008 | a file the declared conformance level requires is absent |
 | LD009 | ``draft: true`` metadata — warning at level 2, error at level 3 |
 
@@ -163,6 +164,22 @@ def _output_findings(block: MetaBlock, root: Path, exempt: list[str]) -> list[Fi
         violation = _name_violation(rel, block.name)
         if violation:
             findings.append(Finding("LD003", block.path, line, violation))
+        # LD003 only governs paths already under outputs/, so a step still writing
+        # to output/ or tmp/ passed level 3 untouched — which is how a repo was
+        # declared level 3 with one step never migrated. Ask propose() where the
+        # output belongs, so the linter and the rename map share one answer.
+        # Local import: propose imports this module's naming primitives, so a
+        # module-level import here would close the cycle.
+        from .propose import proposed_target
+
+        # `rel` is the bare filename for an already-relative declaration, which is
+        # all LD003 needs but would make every path look misplaced here.
+        target = proposed_target(block, str(path))
+        if target is not None and target != rel:
+            findings.append(Finding(
+                "LD010", block.path, line,
+                f"output '{rel}' is outside outputs/; it belongs at '{target}'",
+            ))
     return findings
 
 
