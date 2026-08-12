@@ -45,21 +45,6 @@ RUN pixi shell-hook -e prod -s bash > /shell-hook \
  && cat /shell-hook >> /app/entrypoint.sh \
  && echo 'exec "$@"' >> /app/entrypoint.sh
 
-# LAST in this stage on purpose. `pixi shell-hook` reconciles the environment
-# against the lock, and labcore is not in the lock — it is a path dependency the
-# manifest declares editable. Baking it before the hook ran got it silently
-# removed again, which surfaced only as ModuleNotFoundError at runtime.
-
-# labcore itself. The pixi manifest declares it as an EDITABLE path dependency,
-# which is right for local development and wrong here: the runtime stage copies
-# only the env, not src/, so an editable install would point at a directory that
-# does not exist in the final image. Install it properly into the prod env.
-# --no-deps because pixi already resolved everything from the lock. Build
-# isolation is left ON: without it pip needs hatchling already present in the
-# env, which a pixi env has no reason to carry.
-RUN pixi run -e prod python -m pip install --no-deps . \
- && pixi run -e prod python -c "import labcore; print('baked in labcore', labcore.__version__)"
-
 
 
 FROM ubuntu:24.04 AS production
@@ -85,6 +70,17 @@ WORKDIR /app
 COPY --from=build /app/.pixi/envs/prod /app/.pixi/envs/prod
 COPY --from=build --chmod=0755 /app/entrypoint.sh /app/entrypoint.sh
 
+# labcore ships as source on PYTHONPATH rather than pip-installed into the env.
+# pixi reconciles the environment against the lock on every invocation, and
+# labcore is not in the lock — the manifest declares it an editable path
+# dependency, which is right for development. Two attempts to pip-install it into
+# the prod env were silently undone by that reconciliation, surfacing only as
+# ModuleNotFoundError from the finished image. It is pure Python, so the source
+# on PYTHONPATH is simpler, immune to the reconciliation, and keeps the manifest
+# honest about what the lock actually describes.
+COPY --from=build /app/src /app/src
+
+ENV PYTHONPATH=/app/src
 ENV MPLBACKEND=Agg
 
 ENTRYPOINT ["/app/entrypoint.sh"]
