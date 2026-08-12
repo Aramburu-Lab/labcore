@@ -44,8 +44,10 @@ RUN set -eux; \
 # which is right for local development and wrong here: the runtime stage copies
 # only the env, not src/, so an editable install would point at a directory that
 # does not exist in the final image. Install it properly into the prod env.
-# --no-deps because pixi already resolved everything from the lock.
-RUN pixi run -e prod python -m pip install --no-deps --no-build-isolation . \
+# --no-deps because pixi already resolved everything from the lock. Build
+# isolation is left ON: without it pip needs hatchling already present in the
+# env, which a pixi env has no reason to carry.
+RUN pixi run -e prod python -m pip install --no-deps . \
  && pixi run -e prod python -c "import labcore; print('baked in labcore', labcore.__version__)"
 
 RUN pixi shell-hook -e prod -s bash > /shell-hook \
