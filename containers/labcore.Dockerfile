@@ -35,7 +35,9 @@ RUN set -eux; \
            "$E"/share/terminfo "$E"/share/gtk-doc \
            "$E"/lib/cmake "$E"/lib/pkgconfig ; \
     find "$E" -name '*.so*' -type f -exec strip --strip-unneeded {} + 2>/dev/null || true ; \
-    du -sh "$E"
+    echo "=== env total ===" ; du -sh "$E" ; \
+    echo "=== 20 biggest subtrees ===" ; du -sh "$E"/lib/python3.12/site-packages/* 2>/dev/null | sort -rh | head -20 ; \
+    echo "=== 15 biggest shared libs ===" ; find "$E" -name '*.so*' -type f -exec du -h {} + 2>/dev/null | sort -rh | head -15
 
 RUN pixi shell-hook -e prod -s bash > /shell-hook \
  && printf '#!/bin/bash\n' > /app/entrypoint.sh \
