@@ -29,6 +29,10 @@ duckdb = ">=1.0"
 scipy = ">=1.11"
 pyyaml = ">=6"
 jsonschema = ">=4"
+# pixi installs no pip by default. The container bakes labcore into the prod env
+# with it, because the manifest's path dependency is editable and an editable
+# install cannot survive a runtime stage that copies only the env.
+pip = ">=24"
 
 [feature.dev.dependencies]
 pytest = ">=8"
