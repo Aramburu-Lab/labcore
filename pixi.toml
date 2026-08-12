@@ -1,6 +1,12 @@
 [workspace]
 name = "labcore"
 channels = ["conda-forge"]
+# Declared so an old pixi refuses up front rather than failing obscurely later.
+# Note what this does NOT fix: `--locked` rejecting a freshly written lock is
+# usually a conda/pypi split (a package resolved conda-side but requested only
+# through pypi deps), and that reproduces identically on the pinned version.
+# Pin the package on the conda side; do not reach for a pixi upgrade first.
+requires-pixi = ">=0.76.1,<1.0"
 # glibc is pinned to Kebnekaise's Ubuntu 22.04 so a GLIBCXX crash on a compute
 # node becomes a resolver error on the laptop instead. UNVERIFIED — 2.35 is
 # inferred from the OS version; confirm with `ldd --version` (hpc2n_verified.md).
