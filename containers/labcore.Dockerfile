@@ -40,6 +40,14 @@ RUN set -eux; \
     echo "=== top-level env dirs ===" ; du -sh "$E"/* 2>/dev/null | sort -rh | head -8 ; \
     echo "=== 12 biggest shared libs ===" ; find "$E" -name '*.so*' -type f -exec du -h {} + 2>/dev/null | sort -rh | head -12
 
+# labcore itself. The pixi manifest declares it as an EDITABLE path dependency,
+# which is right for local development and wrong here: the runtime stage copies
+# only the env, not src/, so an editable install would point at a directory that
+# does not exist in the final image. Install it properly into the prod env.
+# --no-deps because pixi already resolved everything from the lock.
+RUN pixi run -e prod python -m pip install --no-deps --no-build-isolation . \
+ && pixi run -e prod python -c "import labcore; print('baked in labcore', labcore.__version__)"
+
 RUN pixi shell-hook -e prod -s bash > /shell-hook \
  && printf '#!/bin/bash\n' > /app/entrypoint.sh \
  && cat /shell-hook >> /app/entrypoint.sh \
