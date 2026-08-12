@@ -20,7 +20,10 @@ polars = ">=1.43,<2"
 # the single biggest lever on image size.
 pyarrow-core = ">=16"
 pandas = ">=2"
-matplotlib = ">=3.8"
+# matplotlib-base, not matplotlib: the latter pulls PySide6/Qt for its GUI
+# backends — 45 MB of python plus hundreds of MB of Qt shared libraries, in an
+# image that sets MPLBACKEND=Agg and has no display. Same plotting API.
+matplotlib-base = ">=3.8"
 plotly = ">=5.20"
 duckdb = ">=1.0"
 scipy = ">=1.11"

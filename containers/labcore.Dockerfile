@@ -37,7 +37,8 @@ RUN set -eux; \
     find "$E" -name '*.so*' -type f -exec strip --strip-unneeded {} + 2>/dev/null || true ; \
     echo "=== env total ===" ; du -sh "$E" ; \
     echo "=== 20 biggest subtrees ===" ; du -sh "$E"/lib/python3.12/site-packages/* 2>/dev/null | sort -rh | head -20 ; \
-    echo "=== 15 biggest shared libs ===" ; find "$E" -name '*.so*' -type f -exec du -h {} + 2>/dev/null | sort -rh | head -15
+    echo "=== top-level env dirs ===" ; du -sh "$E"/* 2>/dev/null | sort -rh | head -8 ; \
+    echo "=== 12 biggest shared libs ===" ; find "$E" -name '*.so*' -type f -exec du -h {} + 2>/dev/null | sort -rh | head -12
 
 RUN pixi shell-hook -e prod -s bash > /shell-hook \
  && printf '#!/bin/bash\n' > /app/entrypoint.sh \
