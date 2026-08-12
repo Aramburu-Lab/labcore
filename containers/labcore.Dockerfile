@@ -40,6 +40,16 @@ RUN set -eux; \
     echo "=== top-level env dirs ===" ; du -sh "$E"/* 2>/dev/null | sort -rh | head -8 ; \
     echo "=== 12 biggest shared libs ===" ; find "$E" -name '*.so*' -type f -exec du -h {} + 2>/dev/null | sort -rh | head -12
 
+RUN pixi shell-hook -e prod -s bash > /shell-hook \
+ && printf '#!/bin/bash\n' > /app/entrypoint.sh \
+ && cat /shell-hook >> /app/entrypoint.sh \
+ && echo 'exec "$@"' >> /app/entrypoint.sh
+
+# LAST in this stage on purpose. `pixi shell-hook` reconciles the environment
+# against the lock, and labcore is not in the lock — it is a path dependency the
+# manifest declares editable. Baking it before the hook ran got it silently
+# removed again, which surfaced only as ModuleNotFoundError at runtime.
+
 # labcore itself. The pixi manifest declares it as an EDITABLE path dependency,
 # which is right for local development and wrong here: the runtime stage copies
 # only the env, not src/, so an editable install would point at a directory that
@@ -50,10 +60,6 @@ RUN set -eux; \
 RUN pixi run -e prod python -m pip install --no-deps . \
  && pixi run -e prod python -c "import labcore; print('baked in labcore', labcore.__version__)"
 
-RUN pixi shell-hook -e prod -s bash > /shell-hook \
- && printf '#!/bin/bash\n' > /app/entrypoint.sh \
- && cat /shell-hook >> /app/entrypoint.sh \
- && echo 'exec "$@"' >> /app/entrypoint.sh
 
 
 FROM ubuntu:24.04 AS production
