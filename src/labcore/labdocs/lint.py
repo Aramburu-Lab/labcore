@@ -173,8 +173,13 @@ def _output_findings(block: MetaBlock, root: Path, exempt: list[str]) -> list[Fi
         from .propose import proposed_target
 
         # `rel` is the bare filename for an already-relative declaration, which is
-        # all LD003 needs but would make every path look misplaced here.
-        target = proposed_target(block, str(path))
+        # all LD003 needs but would make every path look misplaced here — and it
+        # also defeats a naming_exempt glob like `plots/**`, so both the exemption
+        # and the placement check run against the path as declared.
+        declared = str(path)
+        if _is_naming_exempt(declared, exempt):
+            continue
+        target = proposed_target(block, declared)
         if target is not None and target != rel:
             findings.append(Finding(
                 "LD010", block.path, line,

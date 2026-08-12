@@ -7,6 +7,6 @@ metadata parser should not have to install any of them.
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = ["__version__", "cli", "frames", "io", "meta", "paths", "repro", "stats", "viz"]
