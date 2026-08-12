@@ -63,17 +63,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The build plan's 500 MB is for "a single-tool image" and is the right number
-      # for one. This is a nine-package scientific stack, and the floor is the
-      # libraries themselves: polars' runtime 208 MB, duckdb 59, scipy 57, plotly 42.
-      # Measured 2080 -> 1065 MB by removing things that were genuinely waste (Qt in a
-      # headless image, Arrow's dataset/S3 layers, test suites, headers, static libs).
-      # 1200 leaves headroom for a dependency bump without hiding a regression: a jump
-      # back toward 1700 means the Qt or Arrow stack has crept back in.
-      # A SINGLE-TOOL image must still meet 500.
+      # 1.5 GB, Rytis's call 2026-08-12, replacing the build plan's 500 MB — which was
+      # written for "a single-tool image" and is unreachable for a scientific stack.
+      # The floor here is the libraries: polars' runtime 208 MB, duckdb 59, scipy 57,
+      # plotly 42. Waste was removed first, not accommodated: 2080 -> 1077 MB by taking
+      # Qt out of a headless image, dropping Arrow's dataset/S3 layers, and stripping
+      # test suites, headers and static archives.
+      #
+      # The ceiling is a REGRESSION detector, not a target. At 1077 MB there is ~400 MB
+      # of headroom; a build that reaches 1500 has almost certainly pulled a GUI or
+      # Arrow stack back in rather than legitimately grown.
       - name: Acceptance — size, bash, ps
         env:
-          MAX_MB: 1200
+          MAX_MB: 1500
         run: |
           IMG="${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
           docker pull -q "$IMG"
