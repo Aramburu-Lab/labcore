@@ -14,7 +14,11 @@ labcore = { path = ".", editable = true }
 
 [feature.analysis.dependencies]
 polars = ">=1.43,<2"
-pyarrow = ">=16"
+# pyarrow-core, not the full pyarrow: conda-forge splits Arrow, and the full
+# metapackage drags in acero/dataset/substrait/flight plus the aws-c-* S3 stack.
+# labcore.io only needs Table dispatch and parquet, which core provides. This is
+# the single biggest lever on image size.
+pyarrow-core = ">=16"
 pandas = ">=2"
 matplotlib = ">=3.8"
 plotly = ">=5.20"
