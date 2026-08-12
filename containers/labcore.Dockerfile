@@ -17,6 +17,26 @@ COPY src ./src
 # the one committed. In CI the loud failure is the point.
 RUN pixi install --locked -e prod
 
+# A conda/pixi analysis env lands around 2 GB unstripped, mostly in things a
+# runtime image never reads: compiled test suites, C headers, static archives,
+# and __pycache__ that Python regenerates anyway. Stripping is what gets a
+# scientific image from "too big to pull on a login node" to the 150-400 MB the
+# build plan describes. Nothing removed here is importable at runtime.
+RUN set -eux; \
+    E=/app/.pixi/envs/prod; \
+    find "$E" -name '__pycache__' -type d -prune -exec rm -rf {} + ; \
+    find "$E" -name '*.pyc' -delete ; \
+    find "$E" -name '*.pyo' -delete ; \
+    find "$E" -name '*.a' -delete ; \
+    find "$E" -type d -name 'tests' -prune -exec rm -rf {} + ; \
+    find "$E" -type d -name 'test' -prune -exec rm -rf {} + ; \
+    rm -rf "$E"/include \
+           "$E"/share/doc "$E"/share/man "$E"/share/locale \
+           "$E"/share/terminfo "$E"/share/gtk-doc \
+           "$E"/lib/cmake "$E"/lib/pkgconfig ; \
+    find "$E" -name '*.so*' -type f -exec strip --strip-unneeded {} + 2>/dev/null || true ; \
+    du -sh "$E"
+
 RUN pixi shell-hook -e prod -s bash > /shell-hook \
  && printf '#!/bin/bash\n' > /app/entrypoint.sh \
  && cat /shell-hook >> /app/entrypoint.sh \
