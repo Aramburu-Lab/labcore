@@ -293,6 +293,42 @@ def assess(root: Path) -> LevelReport:
     )
 
 
+# The template repo is the only place the level-1 file CONTENTS exist, and it must stay that way:
+# three separate bugs in this project came from one definition living in two places. So labdocs
+# never scaffolds them — it names the command that does.
+TEMPLATE_REF = "gh:Aramburu-Lab/codebase_template"
+
+
+def adoption_hint(root: Path) -> str | None:
+    """The command to run when a repo has not been adopted yet, or None if it has.
+
+    `labdocs adopt` on an un-adopted tree drafts metadata into a repo that has no
+    `.copier-answers.yml` to hang an update channel off, which is the wrong order and
+    silently produces a repo that can never take a template update. Worse, the migrator's
+    natural next move is a bare `copier copy`, which **blocks on stdin forever** on any
+    colliding file — `--defaults` answers the template's questions, not its conflict
+    prompts (template issue #1).
+
+    Returns:
+        A multi-line remedy naming the missing files and the exact command, or None when every
+        level-1 file is present.
+    """
+    missing = _missing_files(root, LEVEL1_FILES)
+    if not missing:
+        return None
+    return "\n".join(
+        [
+            f"not adopted yet — {len(missing)} of {len(LEVEL1_FILES)} level-1 files are missing:",
+            *(f"    {item}" for item in missing),
+            "run this FIRST, from the repo root:",
+            f"    copier copy --trust --overwrite --skip-tasks {TEMPLATE_REF} .",
+            "--overwrite is REQUIRED: without it copier prompts per conflicting file",
+            "and blocks on stdin with no terminal. It also REPLACES colliding files,",
+            "so commit before running it.",
+        ]
+    )
+
+
 def _missing_files(root: Path, names: tuple[str, ...]) -> list[str]:
     """Which of the required paths are absent."""
     return [f"missing {name}" for name in names if not (root / name).is_file()]
