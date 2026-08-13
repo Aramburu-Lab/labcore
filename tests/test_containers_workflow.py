@@ -30,16 +30,18 @@ def _live_lines(job: dict) -> str:
     whose push has been commented out — which is how such a line actually dies: someone disables it
     while debugging and never puts it back. Verified by mutation; the naive version did not fail.
     """
-    return "\n".join(
-        line for line in yaml.dump(job).splitlines() if not line.strip().lstrip("-").strip().startswith("#")
-    )
+    def live(line: str) -> bool:
+        return not line.strip().lstrip("-").strip().startswith("#")
+
+    return "\n".join(line for line in yaml.dump(job).splitlines() if live(line))
 
 
 def test_the_lockfile_is_committed_not_just_uploaded() -> None:
     job = _lock_job()
     script = _live_lines(job)
     assert "git push" in script, "digests.lock is generated but never pushed (the v0.5.x bug)"
-    assert "upload-artifact" not in yaml.dump(job), "an artifact expires; the commit is the deliverable"
+    dumped = yaml.dump(job)
+    assert "upload-artifact" not in dumped, "an artifact expires; the commit is the deliverable"
     assert job.get("permissions", {}).get("contents") == "write", "the push needs contents: write"
 
 
