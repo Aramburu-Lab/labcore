@@ -19,7 +19,7 @@ from labcore.cli import setup_logging
 from labcore.labdocs.adopt import adopt_project, render_report
 from labcore.labdocs.api import write_api_index
 from labcore.labdocs.audit import audit_repos, render_audit
-from labcore.labdocs.levels import MAX_LEVEL
+from labcore.labdocs.levels import MAX_LEVEL, adoption_hint
 from labcore.labdocs.rename import (
     RenameError,
     apply_renames,
@@ -197,6 +197,11 @@ def _cmd_adopt(args: argparse.Namespace) -> int:
         return CLEAN
     if args.apply_renames:
         return _run_codemod(args)
+
+    # Out-of-order adoption is the documented trap, not a hypothetical: level 1 comes from copier,
+    # and drafting metadata first produces a repo with no update channel to hang it off.
+    if (hint := adoption_hint(args.root)) is not None:
+        log.warning("%s", hint)
 
     report = adopt_project(args.root, write=args.write)
     print(render_report(report))

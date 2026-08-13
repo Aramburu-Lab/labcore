@@ -15,10 +15,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from labcore.labdocs.audit import audit_repos, render_audit
-from labcore.labdocs.cli import main
+from labcore.labdocs.cli import main as labdocs_main
 from labcore.labdocs.levels import (
     LEVEL1_FILES,
     MAX_LEVEL,
+    adoption_hint,
     assess,
     draft_severity,
     read_config,
@@ -282,10 +283,10 @@ def test_cli_exit_code_follows_the_declared_level(tmp_path: Path, capsys) -> Non
     adopted = make_repo(tmp_path / "cli_level1", 1, NO_METADATA, name="legacy_step")
     documented = make_repo(tmp_path / "cli_level2", 2, NO_METADATA, name="legacy_step")
 
-    assert main(["lint", "--root", str(adopted)]) == 0
+    assert labdocs_main(["lint", "--root", str(adopted)]) == 0
     assert capsys.readouterr().out == ""
 
-    assert main(["lint", "--root", str(documented)]) == 1
+    assert labdocs_main(["lint", "--root", str(documented)]) == 1
     assert "LD001" in capsys.readouterr().out
 
 
@@ -293,7 +294,7 @@ def test_cli_exit_code_is_clean_for_a_draft_at_level_2(tmp_path: Path, capsys) -
     """A warning is printed but must not fail the commit hook."""
     repo = make_repo(tmp_path / "cli_draft", 2, DRAFT_BLOCK)
 
-    assert main(["lint", "--root", str(repo)]) == 0
+    assert labdocs_main(["lint", "--root", str(repo)]) == 0
     assert "LD009" in capsys.readouterr().out
 
 
@@ -333,3 +334,45 @@ class TestFlatRepoIsGraded:
         assert lint_project(self._flat(tmp_path, 1)) == [], (
             "level 1 must touch no code; a missing block cannot fail it"
         )
+
+
+class TestAdoptionHint:
+    """Template issue #1: the documented adopt-in-place command blocks on stdin.
+
+    `labdocs adopt` cannot scaffold the level-1 files — their contents live in the template repo,
+    and duplicating them here is the one-definition-in-two-places bug that has bitten this project
+    three times. So it names the command instead, with the flag whose absence caused the hang.
+    """
+
+    def test_no_hint_once_every_level_1_file_exists(self, tmp_path: Path) -> None:
+        for name in LEVEL1_FILES:
+            path = tmp_path / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x", encoding="utf-8")
+        assert adoption_hint(tmp_path) is None
+
+    def test_hint_names_the_missing_files_and_the_overwrite_flag(self, tmp_path: Path) -> None:
+        (tmp_path / "AGENTS.md").write_text("x", encoding="utf-8")
+        hint = adoption_hint(tmp_path)
+        assert hint is not None
+        # The flag whose absence is the entire bug. Assert it on the COMMAND LINE, not anywhere in
+        # the hint: the prose below also says "--overwrite", so a substring check over the whole
+        # string passes even when the command itself has lost the flag. (It did — caught by
+        # mutation-testing this assertion, which is the only reason the check is written this way.)
+        command = [line.strip() for line in hint.splitlines() if line.strip().startswith("copier ")]
+        assert len(command) == 1, f"expected exactly one copier command, got {command}"
+        assert "--overwrite" in command[0], f"command lost the flag: {command[0]}"
+        # It must say what --overwrite costs, or it trades a hang for silent data loss.
+        assert "REPLACES" in hint
+        assert "AGENTS.md" not in hint.split("run this FIRST")[0].replace("5 level-1", "")
+        for missing in (".copier-answers.yml", "CLAUDE.md", "knowledge/overview.md"):
+            assert missing in hint
+
+    def test_adopt_warns_before_drafting_into_an_unadopted_tree(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "a.py").write_text("print(1)\n", encoding="utf-8")
+        with caplog.at_level("WARNING"):
+            labdocs_main(["adopt", "--root", str(tmp_path)])
+        assert "--overwrite" in caplog.text, "adopt drafted metadata without flagging the ordering"
