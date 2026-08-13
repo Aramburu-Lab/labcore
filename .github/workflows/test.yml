@@ -47,4 +47,8 @@ jobs:
 
       - run: pytest -q
 
-      - run: ruff check src tests
+      # Lint is independent of the tests, so it reports even when pytest is red — otherwise
+      # a failing test hides the lint result and you find it only on the next push.
+      # !cancelled() rather than always(): no reason to lint a run someone stopped.
+      - if: ${{ !cancelled() }}
+        run: ruff check src tests
