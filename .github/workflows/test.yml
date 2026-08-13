@@ -1,0 +1,54 @@
+# The suite gate. containers.yml fires only on v* tags, so until this file existed a commit
+# could break pytest on main and nothing said so until someone cut a release.
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 is load-bearing, not habit. test_version.py compares __version__
+      # against the newest v* tag and *skips itself* when the checkout has no tags, so a
+      # shallow clone would silently turn the only guard against release drift into a
+      # permanent green skip. That drift is not hypothetical: 0.2.0 shipped under a v0.3.3
+      # tag for four releases and nothing noticed.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # ruff's version comes from the dev extra (>=0.16.2) and is not re-pinned here —
+      # knowledge/versions.md keeps one source per version, and a second copy only drifts.
+      # No retry wrapper: this step makes no curl call, and pip already retries its own
+      # network fetches five times.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - run: pytest -q
+
+      # Lint is independent of the tests, so it reports even when pytest is red — otherwise
+      # a failing test hides the lint result and you find it only on the next push.
+      # !cancelled() rather than always(): no reason to lint a run someone stopped.
+      - if: ${{ !cancelled() }}
+        run: ruff check src tests
