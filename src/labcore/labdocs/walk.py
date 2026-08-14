@@ -19,18 +19,23 @@ from pathlib import Path
 
 import yaml
 
-from labcore.meta import COMMENT_TOKENS, MetaBlock, MetaError, extract_block
+from labcore.meta import COMMENT_TOKENS, MetaBlock, MetaError, extract_block, has_shebang
 
 # Generated, vendored or transient trees. `outputs/` and `results/` hold data,
 # never scripts; `work/` is Nextflow scratch and can contain thousands of files.
-SCRIPT_DIRS = ("scripts", "bin")
+# containers/ holds build and deploy scripts that are as load-bearing as anything in scripts/ —
+# the FragPipe launcher keeps 537 lines of them — and omitting it meant they could never be
+# documented, not merely that they were unlinted.
+SCRIPT_DIRS = ("scripts", "bin", "containers")
 
 # COMMENT_TOKENS includes .toml, because a TOML file *can* carry a block. That is
 # not a licence to grade every config file at a repo root as a pipeline step:
 # pixi.toml and ruff.toml are configuration, and demanding a codebase-meta block
 # from them is nonsense. Inside scripts/ the full token set still applies — a
 # .toml placed there was put there deliberately.
-ROOT_SCRIPT_SUFFIXES = frozenset({".py", ".R", ".r", ".sh", ".bash", ".nf", ".rs", ".jl", ".pl"})
+ROOT_SCRIPT_SUFFIXES = frozenset(
+    {".py", ".R", ".r", ".sh", ".bash", ".nf", ".rs", ".jl", ".pl", ".sbatch"}
+)
 
 SKIP_DIRS = frozenset(
     {".git", "node_modules", "work", "results", ".venv", "__pycache__", "outputs"}
@@ -122,6 +127,18 @@ def _is_skipped(name: str) -> bool:
     return name in SKIP_DIRS or name.startswith(".")
 
 
+def _is_script(path: Path) -> bool:
+    """True for a file labdocs can read a metadata block out of.
+
+    A known extension, or no extension at all plus a shebang. The second case exists because the
+    lab's HPC entry points are conventionally extensionless and were silently unlintable: this
+    repo's own audit found 1,364 lines in one project invisible for that reason alone.
+    """
+    if path.suffix:
+        return path.suffix in COMMENT_TOKENS
+    return has_shebang(path)
+
+
 def iter_scripts(base: Path) -> Iterator[Path]:
     """Yield every script file under a directory, depth-first and sorted.
 
@@ -138,7 +155,7 @@ def iter_scripts(base: Path) -> Iterator[Path]:
         if entry.is_dir():
             if not _is_skipped(entry.name):
                 yield from iter_scripts(entry)
-        elif entry.suffix in COMMENT_TOKENS:
+        elif _is_script(entry):
             yield entry
 
 
@@ -196,7 +213,12 @@ def project_scripts(root: Path) -> Iterator[Path]:
     if not root.is_dir():
         return
     for entry in sorted(root.iterdir()):
-        if entry.is_file() and entry.suffix in ROOT_SCRIPT_SUFFIXES and entry not in seen:
+        if not entry.is_file() or entry in seen:
+            continue
+        known = entry.suffix in ROOT_SCRIPT_SUFFIXES
+        # An extensionless entry point — `fragpipe`, `select_account` — is a script if it says so.
+        # Checked last, because it costs a 2-byte read and the suffix test usually settles it.
+        if known or (not entry.suffix and has_shebang(entry)):
             yield entry
 
 

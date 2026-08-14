@@ -34,6 +34,9 @@ COMMENT_TOKENS: dict[str, str] = {
     ".toml": "#",
     ".jl": "#",
     ".pl": "#",
+    # Slurm batch scripts are shell scripts with a different extension. 328 of them across nine
+    # lab repos were invisible to labdocs until this was added.
+    ".sbatch": "#",
 }
 
 SCHEMA_PATH = Path(__file__).parent / "labdocs" / "schema" / "codebase-meta.schema.json"
@@ -103,6 +106,19 @@ class ParseResult:
     errors: list[tuple[Path, str]] = field(default_factory=list)
 
 
+def has_shebang(path: Path) -> bool:
+    """True when the file's first two bytes are ``#!``.
+
+    Read as bytes, so a binary with no extension cannot raise a decode error on the way to being
+    correctly rejected.
+    """
+    try:
+        with path.open("rb") as handle:
+            return handle.read(2) == b"#!"
+    except OSError:
+        return False
+
+
 def comment_token(path: Path) -> str | None:
     """Return the line-comment token for a file, or None if unsupported.
 
@@ -110,10 +126,17 @@ def comment_token(path: Path) -> str | None:
         path: File whose extension determines the token.
 
     Returns:
-        The comment token (``#`` or ``//``), or None when the extension is not
-        one labdocs knows how to read.
+        The comment token (``#`` or ``//``), or None when the file is not one
+        labdocs knows how to read.
+
+    A file with NO extension is read as ``#`` when it starts with a shebang. The lab's HPC entry
+    points are routinely extensionless — ``fragpipe``, ``bin/select_account`` — and every one of
+    them is ``#!/usr/bin/env bash``, so keying purely on suffix made the main script of a repo
+    undocumentable.
     """
-    return COMMENT_TOKENS.get(path.suffix)
+    if path.suffix:
+        return COMMENT_TOKENS.get(path.suffix)
+    return "#" if has_shebang(path) else None
 
 
 def _open_re(token: str) -> re.Pattern[str]:
