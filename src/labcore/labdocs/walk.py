@@ -13,6 +13,7 @@ fabricate a run order Nextflow decides at runtime.
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -185,7 +186,39 @@ def _read_sidecars(root: Path, project: Project) -> None:
             project.errors.append((path, "meta.yml is not a mapping"))
 
 
-def project_scripts(root: Path) -> Iterator[Path]:
+def _git_ignored(root: Path, paths: list[Path]) -> set[Path]:
+    """Which of these paths git ignores, or an empty set outside a git repo.
+
+    A file git ignores is not part of the codebase, and demanding a `codebase-meta` block from
+    one produces two failures that look like tooling bugs:
+
+    * CI clones the repo and never sees the file, so `labdocs lint` disagrees between a
+      developer's machine and the runner — locally red, remotely green, with no way to reconcile.
+    * A deliberately archived directory becomes a level-2 obstacle. On Riboseq, `bin/archive/`
+      is gitignored and never committed, yet contributed 31 of the 139 scripts the linter
+      demanded metadata for.
+
+    Uses `git check-ignore --stdin`, which is authoritative about every ignore source — nested
+    .gitignore files, .git/info/exclude and the global config — in a way that parsing the root
+    .gitignore is not.
+    """
+    if not paths or not (root / ".git").exists():
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "--stdin"],
+            input="\n".join(str(p) for p in paths),
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    # exit 0 = some ignored, 1 = none ignored; anything else means git could not answer.
+    if proc.returncode not in (0, 1):
+        return set()
+    return {Path(line) for line in proc.stdout.splitlines() if line}
+
+
+def _project_scripts_unfiltered(root: Path) -> Iterator[Path]:
     """Yield every script the linter is responsible for.
 
     Scripts normally live under ``scripts/``, but conformance level 2 requires a
@@ -220,6 +253,19 @@ def project_scripts(root: Path) -> Iterator[Path]:
         # Checked last, because it costs a 2-byte read and the suffix test usually settles it.
         if known or (not entry.suffix and has_shebang(entry)):
             yield entry
+
+
+def project_scripts(root: Path) -> Iterator[Path]:
+    """Every script the linter is responsible for, excluding anything git ignores.
+
+    See :func:`_git_ignored` for why the filter exists. In a non-git directory nothing is
+    filtered, so an un-adopted tree is still graded in full.
+    """
+    found = list(_project_scripts_unfiltered(root))
+    ignored = _git_ignored(root, found)
+    for path in found:
+        if path not in ignored:
+            yield path
 
 
 def walk_project(root: Path) -> Project:

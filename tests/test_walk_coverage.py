@@ -130,3 +130,29 @@ def test_project_name_is_not_empty_for_a_relative_root(tmp_path: Path) -> None:
         assert project_name(Path(".")) == tmp_path.resolve().name
     finally:
         os.chdir(cwd)
+
+
+def test_gitignored_scripts_are_not_linted(tmp_path: Path) -> None:
+    """A file git ignores is not part of the codebase.
+
+    Linting it makes local and CI disagree with no way to reconcile: CI clones the repo and
+    never sees the file. On Riboseq, a deliberately archived `bin/archive/` that had never been
+    committed contributed 31 of the 139 scripts the linter demanded metadata for.
+    """
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("archive/\n", encoding="utf-8")
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "archive" / "old_thing.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "live_thing.py").write_text("print(1)\n", encoding="utf-8")
+
+    seen = _seen(tmp_path)
+    assert "live_thing.py" in seen
+    assert "archive/old_thing.py" not in seen, "a gitignored script must not be linted"
+
+
+def test_a_non_git_directory_is_still_graded_in_full(tmp_path: Path) -> None:
+    """The filter must not silently disable linting for an un-adopted tree."""
+    (tmp_path / "thing.py").write_text("print(1)\n", encoding="utf-8")
+    assert "thing.py" in _seen(tmp_path)
