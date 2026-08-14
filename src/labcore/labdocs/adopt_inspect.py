@@ -87,7 +87,11 @@ def inspect_source(suffix: str, text: str, label: str) -> Findings:
     Raises:
         AdoptError: The extension has no inspector, or a ``.py`` does not parse.
     """
-    if suffix not in ADOPT_SUFFIXES:
+    # SHELL_SUFFIXES carries "" for extensionless entry points, which are not in ADOPT_SUFFIXES
+    # because that set also drives discovery and would otherwise sweep in every LICENSE and README.
+    # This was the THIRD place the same suffix rule lived; the first fix missed it and adopt kept
+    # reporting "no inspector for ''" on files it had just agreed were scripts.
+    if suffix not in ADOPT_SUFFIXES and suffix not in SHELL_SUFFIXES:
         raise AdoptError(f"{label}: no inspector for '{suffix}'")
     if suffix == ".py":
         return inspect_python(text, label)

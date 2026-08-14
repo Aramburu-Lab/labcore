@@ -79,3 +79,20 @@ def test_adopt_and_the_linter_agree_on_what_a_script_is(tmp_path: Path) -> None:
     root = tmp_path.resolve()
     drafted = {str(Path(p).resolve().relative_to(root)) for p in iter_candidates(tmp_path)}
     assert linted == drafted, f"lint sees {sorted(linted)}, adopt sees {sorted(drafted)}"
+
+
+def test_adopt_actually_drafts_an_extensionless_entry_point(tmp_path: Path) -> None:
+    """Discovery parity is not enough — the draft has to succeed.
+
+    The first fix made adopt *find* `fragpipe`, and it still failed with "no inspector for ''"
+    because the same suffix rule lived in a third place (adopt_inspect.inspect_source). Asserting
+    only that the two walks agree let that through, so this asserts a usable draft comes out.
+    """
+    from labcore.labdocs.adopt import inspect_script
+
+    script = tmp_path / "fragpipe"
+    body = "#!/usr/bin/env bash\n# Launch the thing.\nout=results/x.tsv\n"
+    script.write_text(body, encoding="utf-8")
+    draft = inspect_script(script)
+    assert draft is not None
+    assert draft.name == "fragpipe"
