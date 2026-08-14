@@ -96,3 +96,37 @@ def test_adopt_actually_drafts_an_extensionless_entry_point(tmp_path: Path) -> N
     draft = inspect_script(script)
     assert draft is not None
     assert draft.name == "fragpipe"
+
+
+def test_project_name_survives_being_cloned_elsewhere(tmp_path: Path) -> None:
+    """The manifest must not depend on the checkout directory.
+
+    GitHub checks a repo out under its repo name. When that differs from the local directory —
+    command_line_launcher locally, fragpipe-launcher on the runner — a directory-derived name made
+    the runner render a different manifest, and `labdocs render --check` reported permanent
+    staleness. fragpipe-launcher's CI failed on every push for this reason alone.
+    """
+    from labcore.labdocs.render import project_name
+
+    here = tmp_path / "local_dir_name"
+    here.mkdir()
+    (here / ".copier-answers.yml").write_text("project_slug: stable_slug\n", encoding="utf-8")
+    elsewhere = tmp_path / "totally_different_checkout"
+    elsewhere.mkdir()
+    (elsewhere / ".copier-answers.yml").write_text("project_slug: stable_slug\n", encoding="utf-8")
+
+    assert project_name(here) == project_name(elsewhere) == "stable_slug"
+
+
+def test_project_name_is_not_empty_for_a_relative_root(tmp_path: Path) -> None:
+    """`Path('.').name` is the empty string, so `--root .` used to write project: ''."""
+    import os
+
+    from labcore.labdocs.render import project_name
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        assert project_name(Path(".")) == tmp_path.resolve().name
+    finally:
+        os.chdir(cwd)

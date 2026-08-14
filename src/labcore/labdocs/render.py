@@ -87,6 +87,33 @@ def _utc_stamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def project_name(root: Path) -> str:
+    """A project identifier that does not depend on where the repo is checked out.
+
+    `root.name` — what this used to be — is the DIRECTORY name, and it broke two ways:
+
+    * `Path(".").name` is the empty string, so `labdocs render --root .` wrote `"project": ""`.
+    * GitHub checks a repo out under its REPO name. A repo whose local directory differs from
+      its GitHub name therefore renders a different manifest on the runner than in the working
+      tree, and `labdocs render --check` reports permanent staleness. fragpipe-launcher's CI
+      failed on every push for exactly this: `command_line_launcher` locally, `fragpipe-launcher`
+      on the runner.
+
+    `.copier-answers.yml` already records a stable `project_slug`, so prefer it and fall back to
+    the resolved directory name for repos the template has never touched.
+    """
+    answers = root / ".copier-answers.yml"
+    if answers.is_file():
+        try:
+            data = yaml.safe_load(answers.read_text(encoding="utf-8")) or {}
+        except (yaml.YAMLError, OSError):
+            data = {}
+        slug = data.get("project_slug") if isinstance(data, dict) else None
+        if isinstance(slug, str) and slug.strip():
+            return slug.strip()
+    return root.resolve().name
+
+
 def _walk_scripts(root: Path) -> tuple[list[MetaBlock], list[tuple[Path, str]]]:
     """Collect every parseable metadata block under the script directories."""
     blocks: list[MetaBlock] = []
@@ -127,7 +154,7 @@ def load_project(root: Path) -> Project:
     blocks, errors = _walk_scripts(root)
     project = Project(
         root=root,
-        name=root.name,
+        name=project_name(root),
         flavour=flavour,
         steps=sorted((b for b in blocks if not b.is_exempt), key=lambda b: (b.order or 0, b.name)),
         helpers=sorted((b for b in blocks if b.is_exempt), key=lambda b: b.name),
