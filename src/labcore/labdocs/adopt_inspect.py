@@ -14,8 +14,15 @@ from __future__ import annotations
 import ast
 import re
 
-ADOPT_SUFFIXES = frozenset({".py", ".sh", ".bash", ".r", ".R", ".nf", ".rs", ".jl", ".pl"})
-SHELL_SUFFIXES = frozenset({".sh", ".bash"})
+# Must stay in step with walk.ROOT_SCRIPT_SUFFIXES — tests/test_walk_coverage.py asserts the two
+# discovery paths agree. They drifted once: the walker learned about .sbatch and extensionless
+# entry points while adopt did not, so `labdocs lint` demanded a block on files `labdocs adopt`
+# refused to draft one for.
+ADOPT_SUFFIXES = frozenset(
+    {".py", ".sh", ".bash", ".r", ".R", ".nf", ".rs", ".jl", ".pl", ".sbatch"}
+)
+# An extensionless entry point is shell; see walk._is_script.
+SHELL_SUFFIXES = frozenset({".sh", ".bash", ".sbatch", ""})
 
 PLACEHOLDER_OPTION_DESC = "no help text in the source; describe what this flag does"
 PATH_LIMIT = 120

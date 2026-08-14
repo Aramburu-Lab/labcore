@@ -55,3 +55,27 @@ def test_config_at_the_root_is_still_not_a_script(tmp_path: Path) -> None:
     """The pre-existing rule the widening must not break: pixi.toml is configuration."""
     (tmp_path / "pixi.toml").write_text("[workspace]\n", encoding="utf-8")
     assert "pixi.toml" not in _seen(tmp_path)
+
+
+def test_adopt_and_the_linter_agree_on_what_a_script_is(tmp_path: Path) -> None:
+    """The two discovery paths must not drift.
+
+    `labdocs lint` uses walk.project_scripts; `labdocs adopt` used its own ADOPT_SUFFIXES and its
+    own directory walk. When the walker learned about .sbatch and extensionless entry points and
+    adopt did not, lint demanded a block on four files adopt would not draft one for — a repo that
+    could not reach level 2 by following its own tooling.
+    """
+    from labcore.labdocs.adopt import iter_candidates
+
+    for name, body in {
+        "fragpipe": "#!/usr/bin/env bash\necho hi\n",
+        "run_thing.sbatch": "#!/usr/bin/env bash\necho hi\n",
+        "plain.sh": "#!/bin/bash\n",
+        "NOTES": "not a script\n",
+    }.items():
+        (tmp_path / name).write_text(body, encoding="utf-8")
+
+    linted = _seen(tmp_path)
+    root = tmp_path.resolve()
+    drafted = {str(Path(p).resolve().relative_to(root)) for p in iter_candidates(tmp_path)}
+    assert linted == drafted, f"lint sees {sorted(linted)}, adopt sees {sorted(drafted)}"

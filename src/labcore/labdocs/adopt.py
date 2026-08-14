@@ -27,7 +27,7 @@ from pathlib import Path
 
 import yaml
 
-from labcore.meta import MetaError, comment_token, extract_block
+from labcore.meta import MetaError, comment_token, extract_block, has_shebang
 
 from .adopt_inspect import ADOPT_SUFFIXES, MIN_TEXT, AdoptError, inspect_source
 from .walk import SKIP_DIRS
@@ -173,7 +173,7 @@ def iter_candidates(root: Path) -> list[Path]:
         if entry.is_dir():
             if entry.name not in SKIP_DIRS and not entry.name.startswith("."):
                 found += iter_candidates(entry)
-        elif entry.suffix in ADOPT_SUFFIXES:
+        elif entry.suffix in ADOPT_SUFFIXES or (not entry.suffix and has_shebang(entry)):
             found.append(entry)
     return found
 
@@ -193,7 +193,7 @@ def inspect_script(path: Path) -> Draft:
         AdoptError: The extension is unsupported, the file is unreadable, or it
             is a ``.py`` that does not parse.
     """
-    if path.suffix not in ADOPT_SUFFIXES:
+    if path.suffix not in ADOPT_SUFFIXES and not (not path.suffix and has_shebang(path)):
         raise AdoptError(f"{path}: no inspector for '{path.suffix}'")
     try:
         text = path.read_text(encoding="utf-8")
