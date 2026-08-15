@@ -26,6 +26,8 @@ SHELL_SUFFIXES = frozenset({".sh", ".bash", ".sbatch", ""})
 
 PLACEHOLDER_OPTION_DESC = "no help text in the source; describe what this flag does"
 PATH_LIMIT = 120
+# A single character is punctuation or an awk field, never a filename worth drafting.
+MIN_PATH_CHARS = 2
 MIN_TEXT = 3
 
 OPTION_CALLS = frozenset({"add_argument", "add_option"})
@@ -181,16 +183,66 @@ def comment_summary(text: str) -> str | None:
     Returns:
         The comment text, or None when the file opens with code.
     """
+    in_block = False
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#!"):
             continue
+        # Skip an existing codebase-meta block. Without this, re-running adopt on an already
+        # drafted file summarises its own block: every summary became "/// codebase-meta".
+        body_probe = stripped.lstrip("#/").strip()
+        if body_probe.startswith("/// codebase-meta"):
+            in_block = True
+            continue
+        if in_block:
+            if body_probe == "///" or stripped.rstrip().endswith("///"):
+                in_block = False
+            continue
         if not (stripped.startswith("#") or stripped.startswith("//")):
             return None
         body = stripped.lstrip("#/").strip()
-        if body and not body.startswith("-*-"):
+        if body and not body.startswith("-*-") and not _is_decoration(body):
             return body
     return None
+
+
+
+def _is_decoration(body: str) -> bool:
+    r"""True for a banner rule rather than prose.
+
+    Shell scripts in this lab conventionally open with a box:
+
+        #!/usr/bin/env bash
+        # =============================================================
+        # fragpipe - submit a FragPipe run
+        # =============================================================
+
+    Taking the first comment with content made `fragpipe`'s drafted summary a row of `=`
+    characters, and `select_account.sh`'s the same. A line with no letters is never a summary.
+    """
+    return not any(ch.isalpha() for ch in body)
+
+
+def _plausible_path(candidate: str) -> bool:
+    r"""True when a redirection operand could actually be a file.
+
+    `shell_io` matches either side of `>` and `<`, which also catches awk and printf internals.
+    Real drafts contained inputs `=100`, `=NF`, `%g%%`, `bpp` and outputs `%s\n`, `${SIF`, `:`,
+    `chosen,` — all fragments of `awk '{printf "%s\n", $2 > 100}'` style code, none of them files.
+
+    The test is deliberately strict: a path carries a `/`, a `.`, or a `$` variable. A bare word
+    like `dir` or `thresh` is rejected even though a file could in principle be named that, because
+    the costs are not symmetric — a missed output is one line a human adds, while a fabricated one
+    is a line they must first recognise as wrong and then delete, across every script in the repo.
+    """
+    c = candidate.strip().strip("\"'")
+    if len(c) < MIN_PATH_CHARS or not any(ch.isalnum() for ch in c):
+        return False
+    if any(ch in c for ch in "%=|;&()"):
+        return False
+    if c.startswith("${") and "}" not in c:      # truncated expansion, e.g. `${SIF`
+        return False
+    return "/" in c or "." in c or c.startswith("$")
 
 
 def shell_io(text: str) -> tuple[list[str], list[str]]:
@@ -208,8 +260,10 @@ def shell_io(text: str) -> tuple[list[str], list[str]]:
         if code.strip():
             writes += [m.strip().strip("\"'") for m in SHELL_OUT.findall(code)]
             reads += [m.strip().strip("\"'") for m in SHELL_IN.findall(code)]
-    real = [p for p in reads if p and p not in SHELL_NULL]
-    return real, [p for p in writes if p and p not in SHELL_NULL]
+    def keep(paths: list[str]) -> list[str]:
+        return [p for p in paths if p and p not in SHELL_NULL and _plausible_path(p)]
+
+    return keep(reads), keep(writes)
 
 
 def shell_options(text: str) -> list[dict]:

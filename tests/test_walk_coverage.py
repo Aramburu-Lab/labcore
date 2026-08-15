@@ -156,3 +156,62 @@ def test_a_non_git_directory_is_still_graded_in_full(tmp_path: Path) -> None:
     """The filter must not silently disable linting for an un-adopted tree."""
     (tmp_path / "thing.py").write_text("print(1)\n", encoding="utf-8")
     assert "thing.py" in _seen(tmp_path)
+
+
+class TestDraftQuality:
+    """What `labdocs adopt` writes has to be worth correcting rather than deleting.
+
+    Measured on real repos: FragPipe's `fragpipe` drafted a summary of `====...` and inputs of
+    `p`, `2`, `patch`; `select_account.sh` drafted inputs `=100`, `=NF`, `%g%%` and outputs `=0`,
+    `:`, `chosen,`. Riboseq produced 95 such drafts. Every one is a line a human must recognise as
+    wrong before deleting it, which is more expensive than a missing line they simply add.
+    """
+
+    def test_a_banner_rule_is_not_a_summary(self) -> None:
+        from labcore.labdocs.adopt_inspect import comment_summary
+
+        text = (
+            "#!/usr/bin/env bash\n"
+            "# ==============================================\n"
+            "# fragpipe - submit a FragPipe run to Slurm\n"
+            "# ==============================================\n"
+        )
+        assert comment_summary(text) == "fragpipe - submit a FragPipe run to Slurm"
+
+    def test_awk_and_printf_internals_are_not_paths(self) -> None:
+        from labcore.labdocs.adopt_inspect import shell_io
+
+        text = (
+            "#!/bin/bash\n"
+            "awk '{ if ($2 > 100) printf \"%s\\n\", $1 > \"/dev/stderr\" }' in.txt\n"
+            "echo hi > results/out.tsv\n"
+            "cat < data/in.fasta\n"
+        )
+        reads, writes = shell_io(text)
+        assert reads == ["data/in.fasta"]
+        assert writes == ["results/out.tsv"]
+
+    def test_a_real_variable_path_survives(self) -> None:
+        """The filter must not be so strict that it drops genuine outputs."""
+        from labcore.labdocs.adopt_inspect import shell_io
+
+        _, writes = shell_io('echo x > "$OUT_DIR/summary.tsv"\necho y > $LOG\n')
+        assert "$OUT_DIR/summary.tsv" in writes
+        assert "$LOG" in writes
+
+    def test_rerunning_adopt_does_not_summarise_its_own_block(self) -> None:
+        """Idempotency: a drafted file re-drafted must not describe its own metadata.
+
+        Every summary came out as "/// codebase-meta" once files carried a block, because the
+        block is the first comment in the file.
+        """
+        from labcore.labdocs.adopt_inspect import comment_summary
+
+        text = (
+            "#!/usr/bin/env bash\n"
+            "# /// codebase-meta\n"
+            "# name: thing\n"
+            "# ///\n"
+            "# Submit the thing to Slurm.\n"
+        )
+        assert comment_summary(text) == "Submit the thing to Slurm."
