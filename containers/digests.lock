@@ -6,5 +6,5 @@
 # built with apptainer 1.5.3
 #
 # kind	version	reference	digest	built_utc	vcs_ref
-oci	0.6.4	ghcr.io/aramburu-lab/labcore	sha256:f6e772d552f37b799048340b59e43c71dde9b8d55caf97e23043ca61b8f24baf	2026-08-14T22:19:33Z	9732b4c
-sif	0.6.4	oras://ghcr.io/aramburu-lab/labcore-sif	sha256:837bc503ca3f734332fac5ed61fa988e00f8e3f61567bcbbc73161f024480865	2026-08-14T22:19:33Z	9732b4c
+oci	0.6.5	ghcr.io/aramburu-lab/labcore	sha256:331f973bf3e8e9aa875f64bd39c012691e106e1508b54479d31b3a1bcd49ae2b	2026-08-15T07:12:06Z	8e92734
+sif	0.6.5	oras://ghcr.io/aramburu-lab/labcore-sif	sha256:9a0e0d5dfe06cce4dcc909a171636b578c04cc2492dceef92f1baacca9db60ba	2026-08-15T07:12:06Z	8e92734
