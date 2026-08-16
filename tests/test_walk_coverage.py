@@ -215,3 +215,16 @@ class TestDraftQuality:
             "# Submit the thing to Slurm.\n"
         )
         assert comment_summary(text) == "Submit the thing to Slurm."
+
+
+def test_dunder_module_files_are_not_naming_violations(tmp_path: Path) -> None:
+    """`__init__.py` is a Python requirement, not a naming choice.
+
+    It fails the ADR-11 single-lowercase-underscore-string rule on its dunders, and no repo can
+    rename it. Flagging it asks a project to exempt a file it is not free to change.
+    """
+    from labcore.labdocs.lint import _is_language_mandated
+
+    assert _is_language_mandated("__init__.py")
+    assert _is_language_mandated("__main__.py")
+    assert not _is_language_mandated("my_step.py")

@@ -124,12 +124,24 @@ def _name_violation(rel: str, script: str) -> str | None:
     return None
 
 
+# Filenames the language dictates. `__init__.py` marks a Python package and cannot be renamed;
+# `__main__.py` is how `python -m pkg` finds an entry point. Both fail the ADR-11 rule on their
+# dunders, and neither is a naming choice anyone made — flagging them asks a repo to exempt a file
+# it is not free to rename. Found on riboseq-smorf, where bin/qc/__init__.py was the sole LD003.
+LANGUAGE_MANDATED_NAMES = frozenset({"__init__.py", "__main__.py"})
+
+
+def _is_language_mandated(name: str) -> bool:
+    """True for a filename the language requires rather than the author chose."""
+    return name in LANGUAGE_MANDATED_NAMES
+
+
 def _script_name_findings(project: Project, exempt: list[str]) -> list[Finding]:
     """LD003 over the script filenames themselves."""
     findings = []
     for path in sorted(project.script_paths):
         rel = _relative(project.root, path)
-        if _is_naming_exempt(rel, exempt):
+        if _is_naming_exempt(rel, exempt) or _is_language_mandated(path.name):
             continue
         stem = _split_name(path.name)[0]
         bad_version = any(VERSION_SEGMENT.match(part) for part in stem.split("_"))
